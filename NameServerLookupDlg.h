@@ -35,7 +35,7 @@ protected:
 private:
 	CFont m_font;
 public:
-	afx_msg void OnBnClickedOk();
+	afx_msg LRESULT OnLookupDone(WPARAM, LPARAM);
 	afx_msg void OnBnClickedLookup();
 	CString m_nameserver;
 	CString m_domain;
@@ -46,5 +46,6 @@ public:
 	in6_addr addrBuf6;
 	ADDRINFOW addrinfo;
 	PADDRINFOW paddrinfoRes;
-	int iResult;
+	static UINT lookup(LPVOID pParam);
+	DWORD threadID;
 };

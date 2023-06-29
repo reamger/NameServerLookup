@@ -12,6 +12,8 @@
 #define new DEBUG_NEW
 #endif
 
+#define WM_LOOKUPDONE (WM_USER + 101)
+
 
 // CNameServerLookupDlg dialog
 
@@ -23,7 +25,7 @@ CNameServerLookupDlg::CNameServerLookupDlg(CWnd* pParent /*=nullptr*/)
 	, m_domain(_T(""))
 	, m_resultv4(_T(""))
 	, m_resultv6(_T(""))
-	, iResult(0)
+	, threadID(GetCurrentThreadId())
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 	NsLookup.socketInit();
@@ -47,6 +49,7 @@ BEGIN_MESSAGE_MAP(CNameServerLookupDlg, CDialogEx)
 	ON_WM_QUERYDRAGICON()
 	ON_WM_CTLCOLOR()
 	ON_BN_CLICKED(ID_LOOKUP, &CNameServerLookupDlg::OnBnClickedLookup)
+	ON_MESSAGE(WM_LOOKUPDONE, OnLookupDone)
 END_MESSAGE_MAP()
 
 
@@ -106,6 +109,13 @@ HCURSOR CNameServerLookupDlg::OnQueryDragIcon()
 	return static_cast<HCURSOR>(m_hIcon);
 }
 
+LRESULT CNameServerLookupDlg::OnLookupDone(WPARAM w, LPARAM l)
+{
+	GetDlgItem(IDC_RESULT)->SetWindowTextW(m_resultv4);
+	GetDlgItem(IDC_RESULT2)->SetWindowTextW(m_resultv6);
+	return 0;
+}
+
 
 
 HBRUSH CNameServerLookupDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
@@ -130,30 +140,37 @@ void CNameServerLookupDlg::OnBnClickedLookup()
 	m_resultv4 = "Looking up...";
 	m_resultv6 = "Looking up...";
 	UpdateData(FALSE);
-	UpdateWindow();
-	m_resultv4 = "N/A";
-	m_resultv6 = "N/A";
-	iResult = 0;
-	// TODO: Add your control notification handler code here
-	NsLookup.m_domain = m_domain;
-	// char* p = (char*)(LPCTSTR)m_nameserver;
-	// TRACE(m_nameserver);
-	if (m_domain.GetLength() > 128)
-		m_domain = m_domain.Mid(0, 128);
-	iResult = GetAddrInfo((PCWSTR)m_nameserver, NULL, &addrinfo, &paddrinfoRes);
+	AfxBeginThread(lookup, this);
+	
+	// UpdateWindow();
+}
+
+UINT CNameServerLookupDlg::lookup(LPVOID pParam)
+{
+	int iResult = 0;
+	CNameServerLookupDlg* p = (CNameServerLookupDlg*)pParam;
+	p->m_resultv4 = "Unknown error";
+	p->m_resultv6 = "Unknown error";
+	p->NsLookup.m_domain = p->m_domain;
+	if (p->m_domain.GetLength() > 128)
+		p->m_domain = p->m_domain.Mid(0, 128);
+	iResult = GetAddrInfo((PCWSTR)(p->m_nameserver), NULL, &(p->addrinfo), &(p->paddrinfoRes));
 	if (iResult == 0) {
-		if (paddrinfoRes->ai_family == AF_INET) {
-			NsLookup.m_server4 = ((SOCKADDR_IN*)(paddrinfoRes->ai_addr))->sin_addr;
-			NsLookup.v4lookup(m_resultv4, m_resultv6);
-			UpdateData(FALSE);
-			return;
+		if (p->paddrinfoRes->ai_family == AF_INET) {
+			p->NsLookup.m_server4 = ((SOCKADDR_IN*)(p->paddrinfoRes->ai_addr))->sin_addr;
+			p->NsLookup.v4lookup(p->m_resultv4, p->m_resultv6);
 		}
-		else if (paddrinfoRes->ai_family == AF_INET6) {
-			NsLookup.m_server6 = ((SOCKADDR_IN6*)(paddrinfoRes->ai_addr))->sin6_addr;
-			NsLookup.v6lookup(m_resultv4, m_resultv6);
-			UpdateData(FALSE);
-			return;
+		else if (p->paddrinfoRes->ai_family == AF_INET6) {
+			p->NsLookup.m_server6 = ((SOCKADDR_IN6*)(p->paddrinfoRes->ai_addr))->sin6_addr;
+			p->NsLookup.v6lookup(p->m_resultv4, p->m_resultv6);
 		}
 	}
-	UpdateData(FALSE);
+	else if (iResult == WSAHOST_NOT_FOUND) {
+		p->m_resultv4 = "NameServer host not found";
+		p->m_resultv6 = "NameServer host not found";
+	}
+
+	p->PostMessageW(WM_LOOKUPDONE);
+	// PostThreadMessage(p->threadID, WM_LOOKUPDONE, NULL, NULL);
+	return 0;
 }
